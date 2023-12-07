@@ -16,6 +16,12 @@ async function procesarDirectorio() {
 
     // Función para procesar cada archivo CSV
     const procesarArchivo = async (archivo) => {
+      // Omitir archivos que comienzan por "regis"
+      if (archivo.toLowerCase().startsWith('regis')) {
+        console.log(`Archivo omitido: ${archivo}`);
+        return;
+      }
+
       // Construir la ruta completa al archivo CSV
       const rutaCSV = `${directorioCSV}/${archivo}`;
       
