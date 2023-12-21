@@ -1,0 +1,1 @@
+ pkg --target node14-win-x64 --output bd_a_excel.exe bd_a_excel.js crear ejecutable 
