@@ -1,9 +1,13 @@
-const fs = require('fs');
+const fs = require('fs').promises;
 const firebird = require('node-firebird');
 const moment = require('moment');
 const Papa = require('papaparse');
 const XLSX = require('xlsx');
-const fsPromises = require('fs').promises;
+const readline = require('readline').createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+const program = require('commander');
 
 // Configuración para evitar la zona horaria en el formateo de fechas y horas
 moment.suppressDeprecationWarnings = true;
@@ -20,91 +24,86 @@ const firebirdOptions = {
   password: 'masterkey'
 };
 
-// Función principal que extrae datos de todas las tablas y guarda en archivos CSV
-async function extractDataToCsv(outputFolderPath) {
-  // Realizar la conexión a Firebird
-  firebird.attach(firebirdOptions, async (err, db) => {
-    if (err) {
-      console.error(`Error al conectar a la base de datos: ${err.message}`);
-      return;
-    }
+// Función principal que extrae datos de Firebird y procesa el directorio CSV
+async function main() {
+  const outputFolderPath = await askUserForOutputPath();
 
-    try {
-      // Obtener la lista de tablas en la base de datos
-      const result = await queryPromise(db, `
-        SELECT RDB$RELATION_NAME AS TABLE_NAME
-        FROM RDB$RELATIONS
-        WHERE RDB$SYSTEM_FLAG = 0
-        ORDER BY TABLE_NAME
-      `);
+  // Crear un nuevo libro de trabajo Excel
+  const wb = XLSX.utils.book_new();
 
-      // Procesar cada tabla y guardar en un archivo CSV por separado
-      for (const table of result) {
-        const tableName = table.TABLE_NAME;
-        if (!tableName.toLowerCase().startsWith('datos') && !tableName.toLowerCase().startsWith('hopec')) {
-          await processTable(db, tableName, `${outputFolderPath}/${tableName}.csv`);
-        } else {
-          console.log(`La tabla ${tableName} se omitirá.`);
-        }
-      }
+  // Extraer datos de Firebird
+  await extractDataToCsv(outputFolderPath, wb);
 
-      console.log('Extracción de datos completada. Archivos CSV guardados en:', outputFolderPath);
+  // Procesar directorio CSV y generar el archivo Excel
+  await procesarDirectorio(outputFolderPath, wb);
 
-      // Después de extraer datos, procesar los archivos CSV para crear un libro de Excel
-      await processCsvFilesToExcel(outputFolderPath);
+  // Escribir el libro de trabajo Excel en un archivo
+  XLSX.writeFile(wb, `${outputFolderPath}/salida.xlsx`);
+  console.log('Proceso completado.');
+}
 
-    } catch (error) {
-      console.error(`Error durante la extracción de datos: ${error.message}`);
-    } finally {
-      // Cerrar la conexión después de procesar todas las tablas
-      db.detach();
-    }
+function askUserForOutputPath() {
+  return new Promise((resolve) => {
+    readline.question('Ingrese la ruta donde desea guardar los archivos CSV y el archivo Excel: ', (path) => {
+      readline.close();
+      resolve(path);
+    });
   });
 }
 
-async function processCsvFilesToExcel(csvFolderPath) {
-  try {
-    // Lee la lista de archivos en el directorio de manera asíncrona
-    const csvFiles = await fsPromises.readdir(csvFolderPath);
+function queryPromise(db, sql) {
+  return new Promise((resolve, reject) => {
+    db.query(sql, (err, result) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(result);
+      }
+    });
+  });
+}
 
-    // Crea un nuevo libro de Excel
-    const workbook = XLSX.utils.book_new();
-
-    // Promesa que lee y procesa un archivo CSV
-    const processCsvFile = async (csvFile) => {
-      const csvPath = `${csvFolderPath}/${csvFile}`;
-      const csvData = await fsPromises.readFile(csvPath, 'utf8');
-      const result = await new Promise((resolve) => {
-        Papa.parse(csvData, {
-          header: true,
-          complete: (result) => resolve(result),
-        });
-      });
-
-      let sheetName = cleanSheetName(csvFile.replace('.csv', ''));
-      let sheetIndex = 1;
-
-      while (workbook.Sheets[sheetName]) {
-        sheetIndex++;
-        sheetName = cleanSheetName(csvFile.replace('.csv', '')) + '_' + sheetIndex;
+// Función principal que extrae datos de todas las tablas y guarda en archivos CSV
+async function extractDataToCsv(outputFolderPath, wb) {
+  return new Promise((resolve, reject) => {
+    // Realizar la conexión a Firebird
+    firebird.attach(firebirdOptions, async (err, db) => {
+      if (err) {
+        console.error(`Error al conectar a la base de datos: ${err.message}`);
+        reject(err);
+        return;
       }
 
-      const ws = XLSX.utils.json_to_sheet(result.data, { header: Object.keys(result.data[0]) });
-      XLSX.utils.book_append_sheet(workbook, ws, sheetName);
-    };
+      try {
+        // Obtener la lista de tablas en la base de datos
+        const result = await queryPromise(db, `
+          SELECT RDB$RELATION_NAME AS TABLE_NAME
+          FROM RDB$RELATIONS
+          WHERE RDB$SYSTEM_FLAG = 0
+          ORDER BY TABLE_NAME
+        `);
 
-    // Promesas para procesar todos los archivos CSV de manera asíncrona
-    const processingPromises = csvFiles.map(processCsvFile);
+        // Procesar cada tabla y guardar en un archivo CSV por separado
+        for (const table of result) {
+          const tableName = table.TABLE_NAME;
+          if (!tableName.toLowerCase().startsWith('datos') && !tableName.toLowerCase().startsWith('hopec')) {
+            await processTable(db, tableName, `${outputFolderPath}/${tableName}.csv`);
+          } else {
+            console.log(`La tabla ${tableName} se omitirá.`);
+          }
+        }
 
-    // Esperar a que todas las promesas se resuelvan
-    await Promise.all(processingPromises);
-
-    // Guarda el archivo Excel con un nombre único
-    XLSX.writeFile(workbook, 'output.xlsx');
-    console.log('Proceso completado.');
-  } catch (error) {
-    console.error('Error durante el procesamiento de archivos CSV:', error);
-  }
+        console.log('Extracción de datos completada. Archivos CSV guardados en:', outputFolderPath);
+        resolve();
+      } catch (error) {
+        console.error(`Error durante la extracción de datos: ${error.message}`);
+        reject(error);
+      } finally {
+        // Cerrar la conexión después de procesar todas las tablas
+        db.detach();
+      }
+    });
+  });
 }
 
 async function processTable(db, tableName, outputPath) {
@@ -116,6 +115,9 @@ async function processTable(db, tableName, outputPath) {
       const result = await queryPromise(db, `SELECT * FROM ${tableName}`);
 
       if (result.length > 0) {
+        // Importar fs dentro de la función
+        const fs = require('fs');
+
         // Guardar los resultados en un archivo CSV
         const stream = fs.createWriteStream(outputPath, { flags: 'w' });
 
@@ -166,22 +168,82 @@ async function processTable(db, tableName, outputPath) {
   });
 }
 
-function queryPromise(db, sql) {
-  return new Promise((resolve, reject) => {
-    db.query(sql, (err, result) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(result);
+// Función para procesar el directorio CSV y generar el archivo Excel
+async function procesarDirectorio(outputFolderPath, wb) {
+  try {
+    // Obtener la lista de archivos en el directorio
+    const archivosCSV = await fs.readdir(outputFolderPath);
+
+    // Función para procesar cada archivo CSV
+    const procesarArchivo = async (archivo) => {
+      // Omitir archivos que comienzan por "regis"
+      if (archivo.toLowerCase().startsWith('regis')) {
+        console.log(`Archivo omitido: ${archivo}`);
+        return;
       }
-    });
+
+      // Construir la ruta completa al archivo CSV
+      const rutaCSV = `${outputFolderPath}/${archivo}`;
+
+      // Leer el contenido del archivo CSV
+      const csvData = await fs.readFile(rutaCSV, 'utf8');
+
+      // Utilizar PapaParse para analizar el contenido CSV
+      const result = await new Promise((resolve) => {
+        Papa.parse(csvData, {
+          header: true,
+          complete: (result) => resolve(result),
+        });
+      });
+
+      // Generar un nombre único para la hoja de trabajo en caso de duplicados
+      let sheetName = limpiarNombreHoja(archivo.replace('.csv', ''));
+      let sheetIndex = 1;
+
+      while (wb.Sheets[sheetName]) {
+        sheetIndex++;
+        sheetName = limpiarNombreHoja(archivo.replace('.csv', '')) + '_' + sheetIndex;
+      }
+
+      // Convertir los datos analizados a una hoja de trabajo Excel
+      const ws = XLSX.utils.json_to_sheet(result.data.map(rellenarCamposVacios), {
+        header: Object.keys(result.data[0]),
+      });
+
+      // Agregar la hoja de trabajo al libro de trabajo Excel
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    };
+
+    // Crear un array de promesas para el procesamiento paralelo de archivos
+    const promesasProcesamiento = archivosCSV.map(procesarArchivo);
+
+    // Esperar a que todas las promesas se resuelvan
+    await Promise.all(promesasProcesamiento);
+
+    // Escribir el libro de trabajo Excel en un archivo
+    XLSX.writeFile(wb, `${outputFolderPath}/salida.xlsx`);
+    console.log('Proceso completado.');
+  } catch (error) {
+    // Manejar errores durante el procesamiento
+    console.error('Error durante el procesamiento:', error);
+  }
+}
+
+// Función para limpiar el nombre de la hoja y asegurar que no exceda los 31 caracteres
+function limpiarNombreHoja(nombre) {
+  return nombre.substring(0, 31).trim();
+}
+
+// Función para rellenar campos vacíos en un objeto de datos con ceros
+function rellenarCamposVacios(obj) {
+  const newObj = { ...obj }; // Crear un nuevo objeto para no modificar el original
+  Object.keys(newObj).forEach((key) => {
+    if (newObj[key] === null || newObj[key] === undefined || newObj[key] === '') {
+      newObj[key] = 0;
+    }
   });
+  return newObj;
 }
 
-// Llamada a la función principal para extraer datos de todas las tablas y guardar en CSV
-extractDataToCsv('c:/Python1/prueba/');
-
-// Función para limpiar el nombre de la hoja
-function cleanSheetName(name) {
-  return name.substring(0, 31).trim(); // Limita a 31 caracteres y elimina espacios en blanco al principio y al final
-}
+// Iniciar el script
+main();

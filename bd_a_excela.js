@@ -1,6 +1,7 @@
 const fs = require('fs');
 const firebird = require('node-firebird');
 const moment = require('moment');
+const program = require('commander');
 
 // Configuración para evitar la zona horaria en el formateo de fechas y horas
 moment.suppressDeprecationWarnings = true;
@@ -125,6 +126,13 @@ function queryPromise(db, sql) {
     });
   });
 }
+program
+  .version('1.0.0')
+  .option('-o, --output <path>', 'Carpeta de salida para archivos CSV')
+  .parse(process.argv);
+
+const outputFolderPath = program.output || 'c:/Proyectos/informes/prueba/';
 
 // Llamada a la función principal para extraer datos de todas las tablas y guardar en CSV
-extractDataToCsv('c:/Proyectos/informes/prueba/');
+extractDataToCsv(outputFolderPath);
+
