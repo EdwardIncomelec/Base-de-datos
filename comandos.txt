@@ -1,1 +1,14 @@
- pkg --target node14-win-x64 --output bd_a_excel.exe bd_a_excel.js crear ejecutable 
+ pkg --target node14-win-x64 --output bd_a_excel.exe bd_a_excel.js 
+ *crear ejecutable de un archivo
+
+ El archivo bd_a_excel.js tiene la funcionalidad de generar la conexión a la base de datos
+ leer cada tabla de la base de datos generarlos en un archivo csv y posteriormente generar un archivo excel
+ donde guarda los datos en hojas de excel por cada archivo csv (tabla de BD)
+
+ El archivo bd_a_excel3.js realiza la funcionalidad de leer los archivos csv de una ruta en especifico y
+ genera un libro de excel donde cada hoja es un archivo csv
+
+ El archivo bd_a_excela.js realiza la funcionalidad de conectarse a la base de datos buscando el archivo gdb 
+ en una ruta especifica luego genera un archivo csv por cada tabla encontrada, las tablas que estan vacias no 
+ las tiene en cuenta
+
